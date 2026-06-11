@@ -67,14 +67,26 @@ db.collectionGroup('chats')
                 if (tokensArray.length === 0) return;
 
                 const payload = {
-                    tokens: tokensArray, 
-                    android: { priority: 'high' },
-                    data: {
-                        title: `${senderName} (${dynamicSquadId})`, 
-                        body: messageBody,
-                        channel_id: process.env.NOTIFICATION_CHANNEL_ID || "squad_emergency_alerts_v2"
-                    }
-                };
+    tokens: tokensArray, 
+    android: {
+        priority: 'high',
+        notification: {
+            channelId: process.env.NOTIFICATION_CHANNEL_ID || "squad_emergency_alerts_v2",
+            sound: 'default'
+        }
+    },
+    // Wannan na saman allo (kamar na Firebase Console)
+    notification: {
+        title: `${senderName} (${dynamicSquadId})`, 
+        body: messageBody
+    },
+    // Wannan shi ne ainihin data payload dake tafiya kai-tsaye cikin kudin Android dinka
+    data: {
+        senderName: String(senderName),
+        message: String(messageBody),
+        squadId: String(dynamicSquadId)
+    }
+};
 
                 const response = await messaging.sendEachForMulticast(payload);
                 console.log(`✅ [SENT] An tura sanarwa ta girgije ga jami'ai [${response.successCount}]!`);
