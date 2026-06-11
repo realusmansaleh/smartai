@@ -77,7 +77,7 @@ db.collectionGroup('chats')
     },
     // Wannan na saman allo (kamar na Firebase Console)
     notification: {
-        title: `${senderName} (${dynamicSquadId})`, 
+        title: `You have recieived Message From ${senderName}`, 
         body: messageBody
     },
     // Wannan shi ne ainihin data payload dake tafiya kai-tsaye cikin kudin Android dinka
