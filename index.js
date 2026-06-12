@@ -4,7 +4,7 @@ const admin = require('firebase-admin');
 require('dotenv').config();
 
 console.log("\n=========================================================");
-console.log("🚀 Server din Jami'ai na Girgije Ya Tashi! (ALL SQUADS MODE)");
+console.log("🚀 Server ya tafara aiki! (ALL SQUADS MODE)");
 console.log("=========================================================\n");
 
 try {
@@ -77,7 +77,7 @@ db.collectionGroup('chats')
     },
     // Wannan na saman allo (kamar na Firebase Console)
     notification: {
-        title: `You have recieived Message From ${senderName}`, 
+        title: `New Message From ${senderName}`, 
         body: messageBody
     },
     // Wannan shi ne ainihin data payload dake tafiya kai-tsaye cikin kudin Android dinka
@@ -89,7 +89,7 @@ db.collectionGroup('chats')
 };
 
                 const response = await messaging.sendEachForMulticast(payload);
-                console.log(`✅ [SENT] An tura sanarwa ta girgije ga jami'ai [${response.successCount}]!`);
+                console.log(`✅ [SENT] An tura sanarwa [${response.successCount}]!`);
 
             } catch (error) {
                 console.error("❌ Matsalar tura sanarwa:", error);
@@ -104,5 +104,20 @@ db.collectionGroup('chats')
 const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send("Sentinel Security Server Is Active 24/7 🚀"));
+app.get('/', (req, res) => res.send("Security Server Is Active 24/7 🚀"));
 app.listen(PORT, () => console.log(`💻 Dummy Web Port yana kunne a: ${PORT}`));
+
+// 🛡️ INJIN KARIYA DAGA BARCI (SELF-PING TO PREVENT RENDER SLEEP)
+const axios = require('axios'); // ko amfani da https na gida
+setInterval(async () => {
+    try {
+        // Sauya wannan zuwa ainihin cikakken Link dinka na Render!
+        const myServerUrl = 'https://smartai-6u70.onrender.com/'; 
+        
+        console.log(`📡 [SELF-PING] Muna taba sabar kanmu don hana barci...`);
+        await axios.get(myServerUrl);
+        console.log(`✅ [SELF-PING SUCCESS] Sabar tana a farke!`);
+    } catch (error) {
+        console.error(`⚠️ [SELF-PING ERROR] Ba a sami sabar ba:`, error.message);
+    }
+}, 5 * 60 * 1000); // Kowane Minti 5 (5 minutes)
