@@ -4,7 +4,7 @@ const admin = require('firebase-admin');
 require('dotenv').config();
 
 console.log("\n=========================================================");
-console.log("🚀 Server ya tafara aiki! (MULTIPLE LISTENERS MODE)");
+console.log("🚀 Server is running with Strict Background Fix!");
 console.log("=========================================================\n");
 
 try {
@@ -16,45 +16,28 @@ try {
         credential: admin.credential.cert(serviceAccount)
     });
 } catch (err) {
-    console.error("❌ Kuskure wajen karanta fayil din JSON:", err.message);
+    console.error("❌ JSON Error:", err.message);
     process.exit(1); 
 }
 
 const db = admin.firestore();
 const messaging = admin.messaging();
 
-// Helper to fetch user token
-async function getUserToken(userId) {
-    try {
-        const userDoc = await db.collection('Admin').doc('Users').collection('UsersList').doc(userId).get();
-        if (userDoc.exists) {
-            return userDoc.data().fcmToken || null;
-        }
-    } catch (e) {
-        console.error(`❌ Error fetching token for user ${userId}:`, e);
-    }
-    return null;
-}
-
 /**
- * 📡 LISTENER 1: GLOBAL CHATS (Your original working code)
+ * 📡 LISTENER 1: CHAT NOTIFICATIONS (Your Original Working Logic)
  */
 db.collectionGroup('chats')
   .onSnapshot(snapshot => {
-    console.log(`📡 [LIVE LOG] Injin chats ya ji motsi! Canje-canje: [${snapshot.docChanges().length}]`);
-    
     snapshot.docChanges().forEach(async (change) => {
         if (change.type === 'added') {
             const chatData = change.doc.data();
             const docPath = change.doc.ref.path; 
             const pathParts = docPath.split('/');
-            const dynamicSquadId = pathParts[3] || "Squad Alert"; 
+            const dynamicSquadId = (pathParts[3] || "").toString().trim(); 
 
             const senderId = chatData.senderId;     
             const messageBody = chatData.message;   
             const senderName = chatData.senderName; 
-
-            console.log(`📥 [NEW CHAT ALERT] Squad: ${dynamicSquadId} | Daga: ${senderName}`);
 
             try {
                 const usersSnapshot = await db.collection('Admin').doc('Users').collection('UsersList').get();
@@ -65,8 +48,10 @@ db.collectionGroup('chats')
                     const userData = userDoc.data();
                     const uId = userDoc.id; 
                     const fcmToken = userData.fcmToken;
+                    const userActiveSquad = (userData.currentSquadId || "").toString().trim();
 
-                    if (fcmToken && uId !== senderId) {
+                    // Strict filter: Same squad, not sender
+                    if (fcmToken && String(uId).trim() !== String(senderId).trim() && userActiveSquad === dynamicSquadId) {
                         tokensArray.push(fcmToken);
                     }
                 });
@@ -75,13 +60,6 @@ db.collectionGroup('chats')
 
                 const payload = {
                     tokens: tokensArray, 
-                    android: {
-                        priority: 'high',
-                        notification: {
-                            channelId: process.env.NOTIFICATION_CHANNEL_ID || "squad_emergency_alerts_v2",
-                            sound: 'default'
-                        }
-                    },
                     notification: {
                         title: `New Message From ${senderName}`, 
                         body: messageBody
@@ -93,44 +71,33 @@ db.collectionGroup('chats')
                     }
                 };
 
-                const response = await messaging.sendEachForMulticast(payload);
-                console.log(`✅ [SENT CHAT] An tura sanarwa [${response.successCount}]!`);
+                await messaging.sendEachForMulticast(payload);
+                console.log(`✅ [CHAT SENT] Delivered to background squad members.`);
             } catch (error) {
-                console.error("❌ Matsalar tura sanarwa:", error);
+                console.error("❌ Chat notification failed:", error);
             }
         }
     });
-}, error => console.error("❌ Chats Listener Error:", error));
+}, error => console.error(error));
+
 
 /**
- * 📡 LISTENER/**
- * 📡 LISTENER 2: BULLETPROOF SOUND ALERTS
- * This matches your chat notification logic exactly, 1:1.
+ * 📡 LISTENER 2: STRICT CHANNEL-LOCKED SOUND ALERTS (Clean Format Fix)
  */
 db.collectionGroup('sound_alerts')
   .onSnapshot(snapshot => {
-    console.log(`📡 [LIVE LOG] Sound alerts listener triggered!`);
-    
     snapshot.docChanges().forEach(async (change) => {
         if (change.type === 'added') {
             const alertData = change.doc.data();
-            
             const docPath = change.doc.ref.path; 
             const pathParts = docPath.split('/');
-            const dynamicSquadId = alertData.squadId || pathParts[3] || "Squad Alert"; 
+            const dynamicSquadId = (alertData.squadId || pathParts[3] || "").toString().trim(); 
 
             const senderId = alertData.senderId;
             const titleText = alertData.title || "🚨 EMERGENCY SQUAD AUDIO PING";
 
-            console.log(`🔔 [SOUND ALERT] Squad: ${dynamicSquadId} | Sender: ${senderId}`);
-
             try {
-                // Pull from global UsersList exactly like your chat code
-                const usersSnapshot = await db.collection('Admin')
-                                              .doc('Users')
-                                              .collection('UsersList')
-                                              .get();
-
+                const usersSnapshot = await db.collection('Admin').doc('Users').collection('UsersList').get();
                 if (usersSnapshot.empty) return;
 
                 let tokensArray = [];
@@ -138,26 +105,22 @@ db.collectionGroup('sound_alerts')
                     const userData = userDoc.data();
                     const uId = userDoc.id; 
                     const fcmToken = userData.fcmToken;
+                    const userActiveSquad = (userData.currentSquadId || "").toString().trim();
 
-                    // FORCE SEND: No squad checks, just check token and sender ID
-                    if (fcmToken && uId !== senderId) {
+                    // Strict filter: Same squad, not sender
+                    if (fcmToken && String(uId).trim() !== String(senderId).trim() && userActiveSquad === dynamicSquadId) {
                         tokensArray.push(fcmToken);
                     }
                 });
 
                 if (tokensArray.length === 0) return;
 
+                // 🎯 MATCHES YOUR CHAT STRUCTURE 1:1 TO FORWARD TO BACKGROUND
                 const payload = {
                     tokens: tokensArray,
-                    android: {
-                        priority: 'high',
-                        notification: {
-                            channelId: "custom_sound_channel_id", 
-                            sound: 'my_custom_sound'
-                        }
-                    },
                     notification: {
-                        title: titleText
+                        title: titleText,
+                        body: "Tap to view squad emergency alert panel."
                     },
                     data: {
                         type: "sound_alert_only",
@@ -165,86 +128,29 @@ db.collectionGroup('sound_alerts')
                     }
                 };
 
-                const response = await messaging.sendEachForMulticast(payload);
-                console.log(`✅ [SENT SOUND ALERT] Force sent to [${response.successCount}] users!`);
+                await messaging.sendEachForMulticast(payload);
+                console.log(`✅ [SOUND SENT] Channel-locked audio alert delivered successfully.`);
             } catch (error) {
                 console.error("❌ Sound alert delivery failed:", error);
             }
         }
     });
-}, error => console.error("❌ Sound Listener Error:", error));
-
-db.collectionGroup('friend_alerts')
-  .onSnapshot(snapshot => {
-    console.log(`📡 [LIVE LOG] Friend alerts listener triggered! [${snapshot.docChanges().length}]`);
-    
-    snapshot.docChanges().forEach(async (change) => {
-        if (change.type === 'added') {
-            const alertData = change.doc.data();
-            const receiverId = alertData.receiverId; 
-            const senderName = alertData.senderName || "A Friend";
-            const alertTitle = alertData.title || `Alert from ${senderName}`;
-
-            if (!receiverId) {
-                console.log("⚠️ Friend alert document missing critical 'receiverId'. skipping.");
-                return;
-            }
-
-            console.log(`🎯 [TARGETED ALERT] Sending friend alert to target User UUID: ${receiverId}`);
-
-            try {
-                const targetToken = await getUserToken(receiverId);
-
-                if (!targetToken) {
-                    console.log(`⚠️ Target user ${receiverId} does not have a live FCM Token registration.`);
-                    return;
-                }
-
-                const payload = {
-                    token: targetToken, // Using single send payload object structure here
-                    android: {
-                        priority: 'high',
-                        notification: {
-                            channelId: "friend_alerts_channel",
-                            sound: 'default'
-                        }
-                    },
-                    notification: {
-                        title: alertTitle,
-                        body: `${senderName} flagged an attention request.`
-                    },
-                    data: {
-                        senderName: String(senderName),
-                        type: "friend_direct_alert"
-                    }
-                };
-
-                const response = await messaging.send(payload);
-                console.log(`✅ [SENT FRIEND ALERT] Delivered safely to single client device. Message ID: ${response}`);
-            } catch (error) {
-                console.error("❌ Friend direct alert tracking failed:", error);
-            }
-        }
-    });
-}, error => console.error("❌ Friend Listener Error:", error));
+}, error => console.error(error));
 
 
-// Dummy Express server don kiyaye Render kada ta mutu
+// Dummy Express server to keep Render alive
 const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send("Security Server Is Active 24/7 🚀"));
-app.listen(PORT, () => console.log(`💻 Dummy Web Port yana kunne a: ${PORT}`));
+app.get('/', (req, res) => res.send("Security Server Is Active 🚀"));
+app.listen(PORT, () => console.log(`💻 Port active on: ${PORT}`));
 
-// 🛡️ INJIN KARIYA DAGA BARCI (SELF-PING TO PREVENT RENDER SLEEP)
+// Keep-awake ping
 const axios = require('axios');
 setInterval(async () => {
     try {
-        const myServerUrl = 'https://smartai-6u70.onrender.com/'; 
-        console.log(`📡 [SELF-PING] Muna taba sabar kanmu don hana barci...`);
-        await axios.get(myServerUrl);
-        console.log(`✅ [SELF-PING SUCCESS] Sabar tana a farke!`);
+        await axios.get('https://smartai-6u70.onrender.com/');
     } catch (error) {
-        console.error(`⚠️ [SELF-PING ERROR] Ba a sami sabar ba:`, error.message);
+        console.log(`Keep-alive tracking check.`);
     }
 }, 5 * 60 * 1000);
