@@ -102,8 +102,8 @@ db.collectionGroup('chats')
     });
 }, error => console.error("❌ Chats Listener Error:", error));
 /**
- * 📡 LISTENER 2: STRICT CHANNEL-LOCKED SOUND ALERTS
- * Only delivers to users whose currentSquadId matches the alert's squadId.
+ * 📡 LISTENER 2: STRICT CHANNEL-LOCKED SOUND ALERTS (Production Delivery Mode)
+ * Fixes: 1. Stops sender from receiving it. 2. Delivers even when the app is closed.
  */
 db.collectionGroup('sound_alerts')
   .onSnapshot(snapshot => {
@@ -116,14 +116,12 @@ db.collectionGroup('sound_alerts')
             const docPath = change.doc.ref.path; 
             const pathParts = docPath.split('/');
             
-            // Extract squad ID and clean it up immediately
             const dynamicSquadId = (alertData.squadId || pathParts[3] || "").toString().trim(); 
-
             const senderId = alertData.senderId;
             const titleText = alertData.title || "🚨 EMERGENCY SQUAD AUDIO PING";
 
             if (!dynamicSquadId) {
-                console.log("⚠️ Could not resolve squadId for this alert. Dropping to prevent global leak.");
+                console.log("⚠️ Could not resolve squadId for this alert. Dropping.");
                 return;
             }
 
@@ -143,35 +141,37 @@ db.collectionGroup('sound_alerts')
                     const uId = userDoc.id; 
                     const fcmToken = userData.fcmToken;
 
-                    // Clean up the user's active squad string from database to ensure exact match
                     const userActiveSquad = (userData.currentSquadId || "").toString().trim();
 
-                    // STRICT FILTER RULES:
-                    // 1. Must have a valid device token
-                    // 2. Must NOT be the sender
-                    // 3. Their current active room MUST exactly match the alert room
-                    if (fcmToken && uId !== senderId && userActiveSquad === dynamicSquadId) {
+                    // 🎯 FIX 1: Strict String conversion to ensure sender is perfectly excluded
+                    const isSender = String(uId).trim() === String(senderId).trim();
+
+                    if (fcmToken && !isSender && userActiveSquad === dynamicSquadId) {
                         tokensArray.push(fcmToken);
                     }
                 });
 
                 if (tokensArray.length === 0) {
-                    console.log(`ℹ️ Sound alert dropped: No online matching members found inside room "${dynamicSquadId}".`);
+                    console.log(`ℹ️ No target members active inside room "${dynamicSquadId}".`);
                     return;
                 }
 
+                // 🎯 FIX 2: Optimized Payload structure for Background / Killed App state execution
                 const payload = {
                     tokens: tokensArray,
                     android: {
-                        priority: 'high',
+                        priority: 'high', // Forces Android to wake up device immediately
                         notification: {
                             channelId: "custom_sound_channel_id", 
-                            sound: 'my_custom_sound'
+                            sound: 'my_custom_sound',
+                            clickAction: "TOP_LEVEL_NOTIFICATION_CLICK" // Tells OS to pass intent to app
                         }
                     },
+                    // Root notification block handles displaying when app is closed
                     notification: {
                         title: titleText
                     },
+                    // Data payload handles processing when app is foregrounded
                     data: {
                         type: "sound_alert_only",
                         squadId: String(dynamicSquadId)
@@ -179,16 +179,15 @@ db.collectionGroup('sound_alerts')
                 };
 
                 const response = await messaging.sendEachForMulticast(payload);
-                console.log(`✅ [SENT LOCKED SOUND] Delivered strictly to [${response.successCount}] users inside ${dynamicSquadId}!`);
+                console.log(`✅ [SENT] Delivered strictly to [${response.successCount}] background/foreground users inside ${dynamicSquadId}!`);
             } catch (error) {
                 console.error("❌ Locked sound alert delivery failed:", error);
             }
         }
     });
 }, error => console.error("❌ Sound Listener Error:", error));
- /* 📡 LISTENER 3: ONE-TO-ONE FRIEND ALERTS (Feature 2)
- * Sends an alert specifically to one selected user doc
- */
+
+
 db.collectionGroup('friend_alerts')
   .onSnapshot(snapshot => {
     console.log(`📡 [LIVE LOG] Friend alerts listener triggered! [${snapshot.docChanges().length}]`);
