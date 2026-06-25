@@ -1,156 +1,122 @@
-const fs = require('fs');
 const path = require('path');
 const admin = require('firebase-admin');
 require('dotenv').config();
 
 console.log("\n=========================================================");
-console.log("🚀 Server is running with Strict Background Fix!");
+console.log("🚀 Server ya tafara aiki! (ALL SQUADS MODE)");
 console.log("=========================================================\n");
 
 try {
-    const jsonPath = path.join(__dirname, 'smartsafetyai-c608e-firebase-adminsdk-fbsvc-bdb400ad00.json');
-    const rawData = fs.readFileSync(jsonPath, 'utf8');
-    const serviceAccount = JSON.parse(rawData);
+// Tabbatar sunan fayil dinka na JSON ya dace da wannan dake kasa
+const jsonPath = path.join(__dirname, 'smartsafetyai-c608e-firebase-adminsdk-fbsvc-bdb400ad00.json');
+const rawData = fs.readFileSync(jsonPath, 'utf8');
+const serviceAccount = JSON.parse(rawData);
 
-    admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
-    });
+admin.initializeApp({
+credential: admin.credential.cert(serviceAccount)
+});
 } catch (err) {
-    console.error("❌ JSON Error:", err.message);
-    process.exit(1); 
+console.error("❌ Kuskure wajen karanta fayil din JSON:", err.message);
+process.exit(1); 
 }
 
 const db = admin.firestore();
 const messaging = admin.messaging();
 
 /**
- * 📡 LISTENER 1: CHAT NOTIFICATIONS (Your Original Working Logic)
+ * 📡 GLOBAL COLLECTION GROUP LISTENER (Sauraron Duka Rukunoni 24/7)
  */
 db.collectionGroup('chats')
-  .onSnapshot(snapshot => {
-    snapshot.docChanges().forEach(async (change) => {
-        if (change.type === 'added') {
-            const chatData = change.doc.data();
-            const docPath = change.doc.ref.path; 
-            const pathParts = docPath.split('/');
-            const dynamicSquadId = (pathParts[3] || "").toString().trim(); 
+.onSnapshot(snapshot => {
+console.log(`📡 [LIVE LOG] Injin girgije ya ji motsi a Firestore! Canje-canje: [${snapshot.docChanges().length}]`);
 
-            const senderId = chatData.senderId;     
-            const messageBody = chatData.message;   
-            const senderName = chatData.senderName; 
+snapshot.docChanges().forEach(async (change) => {
+if (change.type === 'added') {
+const chatData = change.doc.data();
 
-            try {
-                const usersSnapshot = await db.collection('Admin').doc('Users').collection('UsersList').get();
-                if (usersSnapshot.empty) return;
+const docPath = change.doc.ref.path; 
+const pathParts = docPath.split('/');
+const dynamicSquadId = pathParts[3] || "Squad Alert"; 
 
-                let tokensArray = [];
-                usersSnapshot.forEach(userDoc => {
-                    const userData = userDoc.data();
-                    const uId = userDoc.id; 
-                    const fcmToken = userData.fcmToken;
-                    const userActiveSquad = (userData.currentSquadId || "").toString().trim();
+const senderId = chatData.senderId;     
+const messageBody = chatData.message;   
+const senderName = chatData.senderName; 
 
-                    // Strict filter: Same squad, not sender
-                    if (fcmToken && String(uId).trim() !== String(senderId).trim() && userActiveSquad === dynamicSquadId) {
-                        tokensArray.push(fcmToken);
-                    }
-                });
+console.log(`📥 [NEW ALERT] Squad: ${dynamicSquadId} | Daga: ${senderName} | Sako: ${messageBody}`);
 
-                if (tokensArray.length === 0) return;
+try {
+const usersSnapshot = await db.collection('Admin')
+.doc('Users')
+.collection('UsersList')
+.get();
 
-                const payload = {
-                    tokens: tokensArray, 
-                    notification: {
-                        title: `New Message From ${senderName}`, 
-                        body: messageBody
-                    },
-                    data: {
-                        senderName: String(senderName),
-                        message: String(messageBody),
-                        squadId: String(dynamicSquadId)
-                    }
-                };
+if (usersSnapshot.empty) return;
 
-                await messaging.sendEachForMulticast(payload);
-                console.log(`✅ [CHAT SENT] Delivered to background squad members.`);
-            } catch (error) {
-                console.error("❌ Chat notification failed:", error);
-            }
-        }
-    });
-}, error => console.error(error));
+let tokensArray = [];
+usersSnapshot.forEach(userDoc => {
+const userData = userDoc.data();
+const uId = userDoc.id; 
+const fcmToken = userData.fcmToken;
 
+if (fcmToken && uId !== senderId) {
+tokensArray.push(fcmToken);
+}
+});
 
-/**
- * 📡 LISTENER 2: STRICT CHANNEL-LOCKED SOUND ALERTS (Clean Format Fix)
- */
-db.collectionGroup('sound_alerts')
-  .onSnapshot(snapshot => {
-    snapshot.docChanges().forEach(async (change) => {
-        if (change.type === 'added') {
-            const alertData = change.doc.data();
-            const docPath = change.doc.ref.path; 
-            const pathParts = docPath.split('/');
-            const dynamicSquadId = (alertData.squadId || pathParts[3] || "").toString().trim(); 
+if (tokensArray.length === 0) return;
 
-            const senderId = alertData.senderId;
-            const titleText = alertData.title || "🚨 EMERGENCY SQUAD AUDIO PING";
+const payload = {
+tokens: tokensArray, 
+android: {
+priority: 'high',
+notification: {
+channelId: process.env.NOTIFICATION_CHANNEL_ID || "squad_emergency_alerts_v2",
+sound: 'default'
+}
+},
+// Wannan na saman allo (kamar na Firebase Console)
+notification: {
+title: `New Message From ${senderName}`, 
+body: messageBody
+},
+// Wannan shi ne ainihin data payload dake tafiya kai-tsaye cikin kudin Android dinka
+data: {
+senderName: String(senderName),
+message: String(messageBody),
+squadId: String(dynamicSquadId)
+}
+};
 
-            try {
-                const usersSnapshot = await db.collection('Admin').doc('Users').collection('UsersList').get();
-                if (usersSnapshot.empty) return;
+const response = await messaging.sendEachForMulticast(payload);
+console.log(`✅ [SENT] An tura sanarwa [${response.successCount}]!`);
 
-                let tokensArray = [];
-                usersSnapshot.forEach(userDoc => {
-                    const userData = userDoc.data();
-                    const uId = userDoc.id; 
-                    const fcmToken = userData.fcmToken;
-                    const userActiveSquad = (userData.currentSquadId || "").toString().trim();
+} catch (error) {
+console.error("❌ Matsalar tura sanarwa:", error);
+}
+}
+});
+}, error => {
+console.error("❌ Firestore Listener Error:", error);
+});
 
-                    // Strict filter: Same squad, not sender
-                    if (fcmToken && String(uId).trim() !== String(senderId).trim() && userActiveSquad === dynamicSquadId) {
-                        tokensArray.push(fcmToken);
-                    }
-                });
-
-                if (tokensArray.length === 0) return;
-
-                // 🎯 MATCHES YOUR CHAT STRUCTURE 1:1 TO FORWARD TO BACKGROUND
-                const payload = {
-                    tokens: tokensArray,
-                    notification: {
-                        title: titleText,
-                        body: "Tap to view squad emergency alert panel."
-                    },
-                    data: {
-                        type: "sound_alert_only",
-                        squadId: String(dynamicSquadId)
-                    }
-                };
-
-                await messaging.sendEachForMulticast(payload);
-                console.log(`✅ [SOUND SENT] Channel-locked audio alert delivered successfully.`);
-            } catch (error) {
-                console.error("❌ Sound alert delivery failed:", error);
-            }
-        }
-    });
-}, error => console.error(error));
-
-
-// Dummy Express server to keep Render alive
+// Dummy Express server don kiyaye Render kada ta mutu
 const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send("Security Server Is Active 🚀"));
-app.listen(PORT, () => console.log(`💻 Port active on: ${PORT}`));
+app.get('/', (req, res) => res.send("Security Server Is Active 24/7 🚀"));
+app.listen(PORT, () => console.log(`💻 Dummy Web Port yana kunne a: ${PORT}`));
 
-// Keep-awake ping
-const axios = require('axios');
+// 🛡️ INJIN KARIYA DAGA BARCI (SELF-PING TO PREVENT RENDER SLEEP)
+const axios = require('axios'); // ko amfani da https na gida
 setInterval(async () => {
-    try {
-        await axios.get('https://smartai-6u70.onrender.com/');
-    } catch (error) {
-        console.log(`Keep-alive tracking check.`);
-    }
+try {
+// Sauya wannan zuwa ainihin cikakken Link dinka na Render!
+const myServerUrl = 'https://smartai-6u70.onrender.com/'; 
+
+console.log(`📡 [SELF-PING] Muna taba sabar kanmu don hana barci...`);
+await axios.get(myServerUrl);
+console.log(`✅ [SELF-PING SUCCESS] Sabar tana a farke!`);
+} catch (error) {
+console.error(`⚠️ [SELF-PING ERROR] Ba a sami sabar ba:`, error.message);
+}
 }, 5 * 60 * 1000);
