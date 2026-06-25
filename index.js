@@ -102,12 +102,12 @@ db.collectionGroup('chats')
     });
 }, error => console.error("❌ Chats Listener Error:", error));
 /**
- * 📡 LISTENER 2: BULLETPROOF SOUND ALERTS
- * This matches your chat notification logic exactly, 1:1.
+ * 📡 LISTENER 2: STRICT CHANNEL-LOCKED SOUND ALERTS
+ * Only delivers to users whose currentSquadId matches the alert's squadId.
  */
 db.collectionGroup('sound_alerts')
   .onSnapshot(snapshot => {
-    console.log(`📡 [LIVE LOG] Sound alerts listener triggered!`);
+    console.log(`📡 [LIVE LOG] Strict Sound alert listener triggered!`);
     
     snapshot.docChanges().forEach(async (change) => {
         if (change.type === 'added') {
@@ -115,15 +115,21 @@ db.collectionGroup('sound_alerts')
             
             const docPath = change.doc.ref.path; 
             const pathParts = docPath.split('/');
-            const dynamicSquadId = alertData.squadId || pathParts[3] || "Squad Alert"; 
+            
+            // Extract squad ID and clean it up immediately
+            const dynamicSquadId = (alertData.squadId || pathParts[3] || "").toString().trim(); 
 
             const senderId = alertData.senderId;
             const titleText = alertData.title || "🚨 EMERGENCY SQUAD AUDIO PING";
 
-            console.log(`🔔 [SOUND ALERT] Squad: ${dynamicSquadId} | Sender: ${senderId}`);
+            if (!dynamicSquadId) {
+                console.log("⚠️ Could not resolve squadId for this alert. Dropping to prevent global leak.");
+                return;
+            }
+
+            console.log(`🔔 [LOCKED SOUND ALERT] Squad Target: "${dynamicSquadId}" | Sender: ${senderId}`);
 
             try {
-                // Pull from global UsersList exactly like your chat code
                 const usersSnapshot = await db.collection('Admin')
                                               .doc('Users')
                                               .collection('UsersList')
@@ -137,13 +143,22 @@ db.collectionGroup('sound_alerts')
                     const uId = userDoc.id; 
                     const fcmToken = userData.fcmToken;
 
-                    // FORCE SEND: No squad checks, just check token and sender ID
-                    if (fcmToken && uId !== senderId) {
+                    // Clean up the user's active squad string from database to ensure exact match
+                    const userActiveSquad = (userData.currentSquadId || "").toString().trim();
+
+                    // STRICT FILTER RULES:
+                    // 1. Must have a valid device token
+                    // 2. Must NOT be the sender
+                    // 3. Their current active room MUST exactly match the alert room
+                    if (fcmToken && uId !== senderId && userActiveSquad === dynamicSquadId) {
                         tokensArray.push(fcmToken);
                     }
                 });
 
-                if (tokensArray.length === 0) return;
+                if (tokensArray.length === 0) {
+                    console.log(`ℹ️ Sound alert dropped: No online matching members found inside room "${dynamicSquadId}".`);
+                    return;
+                }
 
                 const payload = {
                     tokens: tokensArray,
@@ -164,13 +179,13 @@ db.collectionGroup('sound_alerts')
                 };
 
                 const response = await messaging.sendEachForMulticast(payload);
-                console.log(`✅ [SENT SOUND ALERT] Force sent to [${response.successCount}] users!`);
+                console.log(`✅ [SENT LOCKED SOUND] Delivered strictly to [${response.successCount}] users inside ${dynamicSquadId}!`);
             } catch (error) {
-                console.error("❌ Sound alert delivery failed:", error);
+                console.error("❌ Locked sound alert delivery failed:", error);
             }
         }
     });
-}, error => console.error("❌ Sound Listener Error:", error));/**
+}, error => console.error("❌ Sound Listener Error:", error));
  * 📡 LISTENER 3: ONE-TO-ONE FRIEND ALERTS (Feature 2)
  * Sends an alert specifically to one selected user doc
  */
