@@ -186,7 +186,7 @@ db.collectionGroup('sound_alerts')
         }
     });
 }, error => console.error("❌ Sound Listener Error:", error));
- * 📡 LISTENER 3: ONE-TO-ONE FRIEND ALERTS (Feature 2)
+ /* 📡 LISTENER 3: ONE-TO-ONE FRIEND ALERTS (Feature 2)
  * Sends an alert specifically to one selected user doc
  */
 db.collectionGroup('friend_alerts')
