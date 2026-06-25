@@ -102,10 +102,9 @@ db.collectionGroup('chats')
     });
 }, error => console.error("❌ Chats Listener Error:", error));
 
-
 /**
  * 📡 LISTENER 2: RESTRICTED SQUAD SOUND ALERTS (Feature 1 - Channel Locked)
- * Sends only a custom sound channel to users inside the specific squad
+ * Corrected to match exact lowercase pathing: Admin -> Squads -> SquadList -> [squadId] -> members
  */
 db.collectionGroup('sound_alerts')
   .onSnapshot(snapshot => {
@@ -115,37 +114,44 @@ db.collectionGroup('sound_alerts')
         if (change.type === 'added') {
             const alertData = change.doc.data();
             const senderId = alertData.senderId;
-            const squadId = alertData.squadId; // Read the target squad restriction
+            const squadId = alertData.squadId; 
             const titleText = alertData.title || "Squad Sound Alert!";
 
             if (!squadId) {
-                console.log("⚠️ Sound alert missing 'squadId'. Skipping to avoid global broadcast.");
+                console.log("⚠️ Sound alert missing 'squadId'. Skipping.");
                 return;
             }
 
             console.log(`🔔 [BOUNDED SOUND ALERT] Sending sound to Squad: ${squadId}`);
 
             try {
-                // 1. Fetch ONLY the users enrolled in this specific squad
-                // Adjust this query path to match exactly where you store squad member mappings!
-                const squadMembersSnapshot = await db.collection('Squads')
+                // 🎯 FIXED PATH: Admin -> Squads -> SquadList -> [squadId] -> members
+                const squadMembersSnapshot = await db.collection('Admin')
+                                                     .doc('Squads')
+                                                     .collection('SquadList')
                                                      .doc(squadId)
-                                                     .collection('Members')
+                                                     .collection('members') // Matches your lowercase database structure
                                                      .get();
 
-                if (squadMembersSnapshot.empty) return;
+                if (squadMembersSnapshot.empty) {
+                    console.log(`⚠️ No members found in squad path for ID: ${squadId}`);
+                    return;
+                }
 
                 let memberIds = [];
                 squadMembersSnapshot.forEach(doc => {
-                    // Assuming doc.id is the User's UID or it contains a userId field
+                    // Collect all member IDs except the person who sent the alert
                     if (doc.id !== senderId) {
                         memberIds.push(doc.id);
                     }
                 });
 
-                if (memberIds.length === 0) return;
+                if (memberIds.length === 0) {
+                    console.log("ℹ️ No other squad members found to alert besides the sender.");
+                    return;
+                }
 
-                // 2. Fetch the FCM tokens for ONLY these specific squad members
+                // Fetch the FCM tokens for these specific squad members
                 let tokensArray = [];
                 for (const uId of memberIds) {
                     const userDoc = await db.collection('Admin')
@@ -158,9 +164,11 @@ db.collectionGroup('sound_alerts')
                     }
                 }
 
-                if (tokensArray.length === 0) return;
+                if (tokensArray.length === 0) {
+                    console.log("⚠️ Target squad members found, but none have active fcmTokens registered.");
+                    return;
+                }
 
-                // 3. Send out the multicast notification payload safely
                 const payload = {
                     tokens: tokensArray,
                     android: {
@@ -180,14 +188,13 @@ db.collectionGroup('sound_alerts')
                 };
 
                 const response = await messaging.sendEachForMulticast(payload);
-                console.log(`✅ [SENT CHANNEL SOUND] Delivered to [${response.successCount}] squad members.`);
+                console.log(`✅ [SENT CHANNEL SOUND] Successfully delivered to [${response.successCount}] squad members.`);
             } catch (error) {
                 console.error("❌ Bounded sound alert delivery failed:", error);
             }
         }
     });
 }, error => console.error("❌ Sound Listener Error:", error));
-
 /**
  * 📡 LISTENER 3: ONE-TO-ONE FRIEND ALERTS (Feature 2)
  * Sends an alert specifically to one selected user doc
