@@ -101,13 +101,15 @@ db.collectionGroup('chats')
         }
     });
 }, error => console.error("❌ Chats Listener Error:", error));
+
 /**
- * 📡 LISTENER 2: STRICT CHANNEL-LOCKED SOUND ALERTS (Production Delivery Mode)
- * Fixes: 1. Stops sender from receiving it. 2. Delivers even when the app is closed.
+ * 📡 LISTENER/**
+ * 📡 LISTENER 2: BULLETPROOF SOUND ALERTS
+ * This matches your chat notification logic exactly, 1:1.
  */
 db.collectionGroup('sound_alerts')
   .onSnapshot(snapshot => {
-    console.log(`📡 [LIVE LOG] Strict Sound alert listener triggered!`);
+    console.log(`📡 [LIVE LOG] Sound alerts listener triggered!`);
     
     snapshot.docChanges().forEach(async (change) => {
         if (change.type === 'added') {
@@ -115,19 +117,15 @@ db.collectionGroup('sound_alerts')
             
             const docPath = change.doc.ref.path; 
             const pathParts = docPath.split('/');
-            
-            const dynamicSquadId = (alertData.squadId || pathParts[3] || "").toString().trim(); 
+            const dynamicSquadId = alertData.squadId || pathParts[3] || "Squad Alert"; 
+
             const senderId = alertData.senderId;
             const titleText = alertData.title || "🚨 EMERGENCY SQUAD AUDIO PING";
 
-            if (!dynamicSquadId) {
-                console.log("⚠️ Could not resolve squadId for this alert. Dropping.");
-                return;
-            }
-
-            console.log(`🔔 [LOCKED SOUND ALERT] Squad Target: "${dynamicSquadId}" | Sender: ${senderId}`);
+            console.log(`🔔 [SOUND ALERT] Squad: ${dynamicSquadId} | Sender: ${senderId}`);
 
             try {
+                // Pull from global UsersList exactly like your chat code
                 const usersSnapshot = await db.collection('Admin')
                                               .doc('Users')
                                               .collection('UsersList')
@@ -141,37 +139,26 @@ db.collectionGroup('sound_alerts')
                     const uId = userDoc.id; 
                     const fcmToken = userData.fcmToken;
 
-                    const userActiveSquad = (userData.currentSquadId || "").toString().trim();
-
-                    // 🎯 FIX 1: Strict String conversion to ensure sender is perfectly excluded
-                    const isSender = String(uId).trim() === String(senderId).trim();
-
-                    if (fcmToken && !isSender && userActiveSquad === dynamicSquadId) {
+                    // FORCE SEND: No squad checks, just check token and sender ID
+                    if (fcmToken && uId !== senderId) {
                         tokensArray.push(fcmToken);
                     }
                 });
 
-                if (tokensArray.length === 0) {
-                    console.log(`ℹ️ No target members active inside room "${dynamicSquadId}".`);
-                    return;
-                }
+                if (tokensArray.length === 0) return;
 
-                // 🎯 FIX 2: Optimized Payload structure for Background / Killed App state execution
                 const payload = {
                     tokens: tokensArray,
                     android: {
-                        priority: 'high', // Forces Android to wake up device immediately
+                        priority: 'high',
                         notification: {
                             channelId: "custom_sound_channel_id", 
-                            sound: 'my_custom_sound',
-                            clickAction: "TOP_LEVEL_NOTIFICATION_CLICK" // Tells OS to pass intent to app
+                            sound: 'my_custom_sound'
                         }
                     },
-                    // Root notification block handles displaying when app is closed
                     notification: {
                         title: titleText
                     },
-                    // Data payload handles processing when app is foregrounded
                     data: {
                         type: "sound_alert_only",
                         squadId: String(dynamicSquadId)
@@ -179,14 +166,13 @@ db.collectionGroup('sound_alerts')
                 };
 
                 const response = await messaging.sendEachForMulticast(payload);
-                console.log(`✅ [SENT] Delivered strictly to [${response.successCount}] background/foreground users inside ${dynamicSquadId}!`);
+                console.log(`✅ [SENT SOUND ALERT] Force sent to [${response.successCount}] users!`);
             } catch (error) {
-                console.error("❌ Locked sound alert delivery failed:", error);
+                console.error("❌ Sound alert delivery failed:", error);
             }
         }
     });
 }, error => console.error("❌ Sound Listener Error:", error));
-
 
 db.collectionGroup('friend_alerts')
   .onSnapshot(snapshot => {
