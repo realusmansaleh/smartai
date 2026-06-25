@@ -46,54 +46,85 @@ const senderName = chatData.senderName;
 console.log(`📥 [NEW ALERT] Squad: ${dynamicSquadId} | Daga: ${senderName} | Sako: ${messageBody}`);
 
 try {
-const usersSnapshot = await db.collection('Admin')
-.doc('Users')
-.collection('UsersList')
-.get();
 
-if (usersSnapshot.empty) return;
+    const usersSnapshot = await db.collection('Admin')
+        .doc('Users')
+        .collection('UsersList')
+        .get();
 
-let tokensArray = [];
-usersSnapshot.forEach(userDoc => {
-const userData = userDoc.data();
-const uId = userDoc.id; 
-const fcmToken = userData.fcmToken;
+    if (usersSnapshot.empty) return;
 
-if (fcmToken && uId !== senderId) {
-tokensArray.push(fcmToken);
-}
-});
+    let tokensArray = [];
 
-if (tokensArray.length === 0) return;
+    usersSnapshot.forEach(userDoc => {
 
-const payload = {
-tokens: tokensArray, 
-android: {
-priority: 'high',
-notification: {
-channelId: process.env.NOTIFICATION_CHANNEL_ID || "squad_emergency_alerts_v2",
-sound: 'default'
-}
-},
-// Wannan na saman allo (kamar na Firebase Console)
-notification: {
-title: `New Message From ${senderName}`, 
-body: messageBody
-},
-// Wannan shi ne ainihin data payload dake tafiya kai-tsaye cikin kudin Android dinka
-data: {
-senderName: String(senderName),
-message: String(messageBody),
-squadId: String(dynamicSquadId)
-}
-};
+        const userData = userDoc.data();
+        const uId = userDoc.id;
+        const fcmToken = userData.fcmToken;
 
-const response = await messaging.sendEachForMulticast(payload);
-console.log(`✅ [SENT] An tura sanarwa [${response.successCount}]!`);
+        if (fcmToken && uId !== senderId) {
+            tokensArray.push(fcmToken);
+        }
+    });
+
+    if (tokensArray.length === 0) {
+        console.log("⚠️ No recipient tokens found");
+        return;
+    }
+
+    const payload = {
+        tokens: tokensArray,
+
+        android: {
+            priority: 'high',
+            notification: {
+                channelId: 'squad_emergency_alerts_v2',
+                sound: 'default'
+            }
+        },
+
+        notification: {
+            title: `New Message From ${senderName}`,
+            body: String(messageBody)
+        },
+
+        data: {
+            type: "chat_message",
+            title: `New Message From ${senderName}`,
+            body: String(messageBody),
+            senderName: String(senderName),
+            squadId: String(dynamicSquadId)
+        }
+    };
+
+    const response = await messaging.sendEachForMulticast(payload);
+
+    console.log("==================================");
+    console.log("📨 FCM RESULT");
+    console.log("Success:", response.successCount);
+    console.log("Failed :", response.failureCount);
+    console.log("==================================");
+
+    response.responses.forEach((resp, index) => {
+
+        if (!resp.success) {
+
+            console.error(
+                `❌ Failed Token [${index}]`,
+                tokensArray[index]
+            );
+
+            console.error(
+                `❌ Error:`,
+                resp.error
+            );
+        }
+    });
 
 } catch (error) {
-console.error("❌ Matsalar tura sanarwa:", error);
+    console.error("❌ Notification Error:", error);
 }
+  
 }
 });
 }, error => {
