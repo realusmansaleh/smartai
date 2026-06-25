@@ -101,23 +101,20 @@ db.collectionGroup('chats')
         }
     });
 }, error => console.error("❌ Chats Listener Error:", error));
-
 /**
- * 📡 LISTENER 2: RESTRICTED SQUAD SOUND ALERTS (Feature 1)
- * Fixed to pull tokens directly from UsersList exactly like your working chat code!
+ * 📡 LISTENER 2: BULLETPROOF SOUND ALERTS
+ * This matches your chat notification logic exactly, 1:1.
  */
 db.collectionGroup('sound_alerts')
   .onSnapshot(snapshot => {
-    console.log(`📡 [LIVE LOG] Sound alerts listener triggered! Changes: [${snapshot.docChanges().length}]`);
+    console.log(`📡 [LIVE LOG] Sound alerts listener triggered!`);
     
     snapshot.docChanges().forEach(async (change) => {
         if (change.type === 'added') {
             const alertData = change.doc.data();
             
-            // 🎯 AUTOMATIC PATH EXTRACTION (Exactly like your working chat code!)
             const docPath = change.doc.ref.path; 
             const pathParts = docPath.split('/');
-            // Path structure: Admin/Squads/SquadList/[squadId]/sound_alerts/[docId]
             const dynamicSquadId = alertData.squadId || pathParts[3] || "Squad Alert"; 
 
             const senderId = alertData.senderId;
@@ -126,7 +123,7 @@ db.collectionGroup('sound_alerts')
             console.log(`🔔 [SOUND ALERT] Squad: ${dynamicSquadId} | Sender: ${senderId}`);
 
             try {
-                // 1. Pull from the global list exactly like your working chat code
+                // Pull from global UsersList exactly like your chat code
                 const usersSnapshot = await db.collection('Admin')
                                               .doc('Users')
                                               .collection('UsersList')
@@ -140,19 +137,13 @@ db.collectionGroup('sound_alerts')
                     const uId = userDoc.id; 
                     const fcmToken = userData.fcmToken;
 
-                    // 2. Filter: Only include tokens if they match the active squad selection data
-                    // (Ensure your users save their current active squad ID inside their User profile doc as 'currentSquadId')
+                    // FORCE SEND: No squad checks, just check token and sender ID
                     if (fcmToken && uId !== senderId) {
-                        if (userData.currentSquadId === dynamicSquadId || !userData.currentSquadId) {
-                            tokensArray.push(fcmToken);
-                        }
+                        tokensArray.push(fcmToken);
                     }
                 });
 
-                if (tokensArray.length === 0) {
-                    console.log("ℹ️ No target tokens found for this squad broadcast.");
-                    return;
-                }
+                if (tokensArray.length === 0) return;
 
                 const payload = {
                     tokens: tokensArray,
@@ -173,14 +164,13 @@ db.collectionGroup('sound_alerts')
                 };
 
                 const response = await messaging.sendEachForMulticast(payload);
-                console.log(`✅ [SENT SOUND ALERT] Successfully sent [${response.successCount}] alerts!`);
+                console.log(`✅ [SENT SOUND ALERT] Force sent to [${response.successCount}] users!`);
             } catch (error) {
                 console.error("❌ Sound alert delivery failed:", error);
             }
         }
     });
-}, error => console.error("❌ Sound Listener Error:", error));
-/**
+}, error => console.error("❌ Sound Listener Error:", error));/**
  * 📡 LISTENER 3: ONE-TO-ONE FRIEND ALERTS (Feature 2)
  * Sends an alert specifically to one selected user doc
  */
