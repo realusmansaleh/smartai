@@ -103,69 +103,54 @@ db.collectionGroup('chats')
 }, error => console.error("❌ Chats Listener Error:", error));
 
 /**
- * 📡 LISTENER 2: RESTRICTED SQUAD SOUND ALERTS (Feature 1 - Channel Locked)
- * Corrected to match exact lowercase pathing: Admin -> Squads -> SquadList -> [squadId] -> members
+ * 📡 LISTENER 2: RESTRICTED SQUAD SOUND ALERTS (Feature 1)
+ * Fixed to pull tokens directly from UsersList exactly like your working chat code!
  */
 db.collectionGroup('sound_alerts')
   .onSnapshot(snapshot => {
-    console.log(`📡 [LIVE LOG] Restricted Sound alert triggered!`);
+    console.log(`📡 [LIVE LOG] Sound alerts listener triggered! Changes: [${snapshot.docChanges().length}]`);
     
     snapshot.docChanges().forEach(async (change) => {
         if (change.type === 'added') {
             const alertData = change.doc.data();
+            
+            // 🎯 AUTOMATIC PATH EXTRACTION (Exactly like your working chat code!)
+            const docPath = change.doc.ref.path; 
+            const pathParts = docPath.split('/');
+            // Path structure: Admin/Squads/SquadList/[squadId]/sound_alerts/[docId]
+            const dynamicSquadId = alertData.squadId || pathParts[3] || "Squad Alert"; 
+
             const senderId = alertData.senderId;
-            const squadId = alertData.squadId; 
-            const titleText = alertData.title || "Squad Sound Alert!";
+            const titleText = alertData.title || "🚨 EMERGENCY SQUAD AUDIO PING";
 
-            if (!squadId) {
-                console.log("⚠️ Sound alert missing 'squadId'. Skipping.");
-                return;
-            }
-
-            console.log(`🔔 [BOUNDED SOUND ALERT] Sending sound to Squad: ${squadId}`);
+            console.log(`🔔 [SOUND ALERT] Squad: ${dynamicSquadId} | Sender: ${senderId}`);
 
             try {
-                // 🎯 FIXED PATH: Admin -> Squads -> SquadList -> [squadId] -> members
-                const squadMembersSnapshot = await db.collection('Admin')
-                                                     .doc('Squads')
-                                                     .collection('SquadList')
-                                                     .doc(squadId)
-                                                     .collection('members') // Matches your lowercase database structure
-                                                     .get();
+                // 1. Pull from the global list exactly like your working chat code
+                const usersSnapshot = await db.collection('Admin')
+                                              .doc('Users')
+                                              .collection('UsersList')
+                                              .get();
 
-                if (squadMembersSnapshot.empty) {
-                    console.log(`⚠️ No members found in squad path for ID: ${squadId}`);
-                    return;
-                }
+                if (usersSnapshot.empty) return;
 
-                let memberIds = [];
-                squadMembersSnapshot.forEach(doc => {
-                    // Collect all member IDs except the person who sent the alert
-                    if (doc.id !== senderId) {
-                        memberIds.push(doc.id);
+                let tokensArray = [];
+                usersSnapshot.forEach(userDoc => {
+                    const userData = userDoc.data();
+                    const uId = userDoc.id; 
+                    const fcmToken = userData.fcmToken;
+
+                    // 2. Filter: Only include tokens if they match the active squad selection data
+                    // (Ensure your users save their current active squad ID inside their User profile doc as 'currentSquadId')
+                    if (fcmToken && uId !== senderId) {
+                        if (userData.currentSquadId === dynamicSquadId || !userData.currentSquadId) {
+                            tokensArray.push(fcmToken);
+                        }
                     }
                 });
 
-                if (memberIds.length === 0) {
-                    console.log("ℹ️ No other squad members found to alert besides the sender.");
-                    return;
-                }
-
-                // Fetch the FCM tokens for these specific squad members
-                let tokensArray = [];
-                for (const uId of memberIds) {
-                    const userDoc = await db.collection('Admin')
-                                                  .doc('Users')
-                                                  .collection('UsersList')
-                                                  .doc(uId)
-                                                  .get();
-                    if (userDoc.exists && userDoc.data().fcmToken) {
-                        tokensArray.push(userDoc.data().fcmToken);
-                    }
-                }
-
                 if (tokensArray.length === 0) {
-                    console.log("⚠️ Target squad members found, but none have active fcmTokens registered.");
+                    console.log("ℹ️ No target tokens found for this squad broadcast.");
                     return;
                 }
 
@@ -183,14 +168,14 @@ db.collectionGroup('sound_alerts')
                     },
                     data: {
                         type: "sound_alert_only",
-                        squadId: String(squadId)
+                        squadId: String(dynamicSquadId)
                     }
                 };
 
                 const response = await messaging.sendEachForMulticast(payload);
-                console.log(`✅ [SENT CHANNEL SOUND] Successfully delivered to [${response.successCount}] squad members.`);
+                console.log(`✅ [SENT SOUND ALERT] Successfully sent [${response.successCount}] alerts!`);
             } catch (error) {
-                console.error("❌ Bounded sound alert delivery failed:", error);
+                console.error("❌ Sound alert delivery failed:", error);
             }
         }
     });
