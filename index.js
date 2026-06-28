@@ -1,16 +1,14 @@
 const fs = require('fs');
 const path = require('path');
 const admin = require('firebase-admin');
-const axios = require('axios'); // Don injin kariya na hana barci
 require('dotenv').config();
 
 console.log("\n=========================================================");
-console.log("🚀 Server din Jami'ai na Girgije Ya Tashi! (NO-INDEX MODE)");
+console.log("🚀 Server Setup: Combined Channel-Locked Mode Running!");
 console.log("=========================================================\n");
 
 try {
-    const jsonPath = path.resolve(__dirname, 'smartsafetyai-c608e-firebase-adminsdk-fbsvc-bdb400ad00.json');
-    console.log(`🔍 Neman fayil din JSON a: ${jsonPath}`);
+    const jsonPath = path.join(__dirname, 'smartsafetyai-c608e-firebase-adminsdk-fbsvc-bdb400ad00.json');
     const rawData = fs.readFileSync(jsonPath, 'utf8');
     const serviceAccount = JSON.parse(rawData);
 
@@ -25,30 +23,17 @@ try {
 const db = admin.firestore();
 const messaging = admin.messaging();
 
-// 🛡️ Wannan canji zai hana ambaliyar tsofaffin sakonni ba tare da an saka Index ba
-let isFirstLoad = true;
-
 /**
- * 📡 GLOBAL COLLECTION GROUP LISTENER (NO INDEX REQUIRED)
- * Mun cire duk wani .where() ko .orderBy() don kiyaye Firebase Index Error
+ * 📡 LISTENER 1: CHAT NOTIFICATIONS (Your Original Functional Setup)
  */
 db.collectionGroup('chats')
   .onSnapshot(snapshot => {
-    if (snapshot.empty) return;
+    console.log(`📡 [LIVE LOG] Injin girgije ya ji motsi a Chats! Canje-canje: [${snapshot.docChanges().length}]`);
 
-    // Idan sabar yanzu ta tashi, ta watsar da tsofaffin sakonnin dake ciki na baya baki daya
-    if (isFirstLoad) {
-        isFirstLoad = false;
-        console.log(`📦 [INITIAL LAUNCH] An watsar da tsofaffin sakonni guda [${snapshot.docChanges().length}] na baya.`);
-        return; 
-    }
-
-    console.log(`📡 [LIVE LOG] Sabon motsi ya shigo canje-canje: [${snapshot.docChanges().length}]`);
-    
     snapshot.docChanges().forEach(async (change) => {
         if (change.type === 'added') {
             const chatData = change.doc.data();
-            
+
             const docPath = change.doc.ref.path; 
             const pathParts = docPath.split('/');
             const dynamicSquadId = pathParts[3] || "Squad Alert"; 
@@ -57,7 +42,7 @@ db.collectionGroup('chats')
             const messageBody = chatData.message;   
             const senderName = chatData.senderName; 
 
-            console.log(`📥 [NEW ALERT] Squad: ${dynamicSquadId} | Daga: ${senderName} | Sako: ${messageBody}`);
+            console.log(`📥 [NEW CHAT] Squad: ${dynamicSquadId} | Daga: ${senderName}`);
 
             try {
                 const usersSnapshot = await db.collection('Admin')
@@ -72,27 +57,20 @@ db.collectionGroup('chats')
                     const userData = userDoc.data();
                     const uId = userDoc.id; 
                     const fcmToken = userData.fcmToken;
+                    const userActiveSquad = (userData.currentSquadId || "").toString().trim();
 
-                    // Kar a tura wa wanda ya aiko da sakon
-                    if (fcmToken && uId !== senderId) {
+                    // Filter matching current chat room location exactly
+                    if (fcmToken && String(uId).trim() !== String(senderId).trim() && userActiveSquad === String(dynamicSquadId).trim()) {
                         tokensArray.push(fcmToken);
                     }
                 });
 
                 if (tokensArray.length === 0) return;
 
-                // Saita tsarin sakon da Android dinka ke bukata (senderName da message)
                 const payload = {
                     tokens: tokensArray, 
-                    android: {
-                        priority: 'high',
-                        notification: {
-                            channelId: process.env.NOTIFICATION_CHANNEL_ID || "squad_emergency_alerts_v2",
-                            sound: 'default'
-                        }
-                    },
                     notification: {
-                        title: `${senderName} (${dynamicSquadId})`, 
+                        title: `New Message From ${senderName}`, 
                         body: messageBody
                     },
                     data: {
@@ -103,40 +81,133 @@ db.collectionGroup('chats')
                 };
 
                 const response = await messaging.sendEachForMulticast(payload);
-                console.log(`✅ [SENT] An tura sanarwa ta girgije ga jami'ai [${response.successCount}]!`);
+                console.log(`✅ [CHAT SENT] Delivered chat notification alerts to [${response.successCount}] profiles.`);
 
             } catch (error) {
-                console.error("❌ Matsalar tura sanarwa:", error);
+                console.error("❌ Matsalar tura sanarwa chat:", error);
             }
         }
     });
-}, error => {
-    console.error("❌ Firestore Listener Error:", error);
-});
+}, error => console.error("❌ Firestore Chat Listener Error:", error));
 
-// Dummy Express server don kiyaye Render
+
+/**
+ * 📡 LISTENER 2: RESTRICTED SQUAD SOUND ALERTS (Fixed Database Mapping Insertion)
+ * Sends a custom sound channel strictly to active users inside the specified squad path
+ */
+db.collectionGroup('sound_alerts')
+  .onSnapshot(snapshot => {
+    console.log(`📡 [LIVE LOG] Restricted Sound alert triggered!`);
+    
+    snapshot.docChanges().forEach(async (change) => {
+        if (change.type === 'added') {
+            const alertData = change.doc.data();
+            
+            const docPath = change.doc.ref.path; 
+            const pathParts = docPath.split('/');
+            
+            // Extract and clean squad identity string safely
+            const squadId = (alertData.squadId || pathParts[3] || "").toString().trim();
+            const senderId = alertData.senderId;
+            const titleText = alertData.title || "Squad Sound Alert!";
+
+            if (!squadId) {
+                console.log("⚠️ Sound alert missing 'squadId'. Skipping to avoid global broadcast.");
+                return;
+            }
+
+            console.log(`🔔 [BOUNDED SOUND ALERT] Sending sound to Squad: ${squadId}`);
+
+            try {
+                // 🎯 PATH FIX: Follows your specific nested structure "Admin/Squads/SquadList/[id]/members"
+                const squadMembersSnapshot = await db.collection('Admin')
+                                                     .doc('Squads')
+                                                     .collection('SquadList')
+                                                     .doc(squadId)
+                                                     .collection('members') // Explicit lowercase collection rule mapping
+                                                     .get();
+
+                if (squadMembersSnapshot.empty) {
+                    console.log(`⚠️ No members found in subcollection path for squad: ${squadId}`);
+                    return;
+                }
+
+                let memberIds = [];
+                squadMembersSnapshot.forEach(doc => {
+                    // Filter check: Convert to clean string to bypass string matching discrepancies 
+                    if (String(doc.id).trim() !== String(senderId).trim()) {
+                        memberIds.push(doc.id);
+                    }
+                });
+
+                if (memberIds.length === 0) {
+                    console.log("ℹ️ Broadcast cancelled: Sender is the only member inside this squad.");
+                    return;
+                }
+
+                // Fetching corresponding FCM destination keys globally via cross-referenced UIDs
+                let tokensArray = [];
+                for (const uId of memberIds) {
+                    const userDoc = await db.collection('Admin')
+                                                  .doc('Users')
+                                                  .collection('UsersList')
+                                                  .doc(uId)
+                                                  .get();
+                    if (userDoc.exists && userDoc.data().fcmToken) {
+                        tokensArray.push(userDoc.data().fcmToken);
+                    }
+                }
+
+                if (tokensArray.length === 0) {
+                    console.log("⚠️ Active squad members targeted lack valid registered fcmTokens.");
+                    return;
+                }
+
+                // 🎯 FORMAT FIX: Standardized body configurations to keep notification alive when app is closed
+                const payload = {
+                    tokens: tokensArray,
+                    android: {
+                        priority: 'high',
+                        notification: {
+                            channelId: "custom_sound_channel_id", 
+                            sound: 'my_custom_sound'
+                        }
+                    },
+                    notification: {
+                        title: titleText,
+                        body: "🚨 Strategic sound alert broadcast update incoming!"
+                    },
+                    data: {
+                        type: "sound_alert_only",
+                        squadId: String(squadId)
+                    }
+                };
+
+                const response = await messaging.sendEachForMulticast(payload);
+                console.log(`✅ [SENT CHANNEL SOUND] Delivered strictly to [${response.successCount}] active squad members.`);
+            } catch (error) {
+                console.error("❌ Bounded sound alert delivery failed:", error);
+            }
+        }
+    });
+}, error => console.error("❌ Sound Listener Error:", error));
+
+
+// Dummy Express server tracking setup to keep Render from sleeping
 const express = require('express');
 const app = express();
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 3000;
+app.get('/', (req, res) => res.send("Security Server Is Active 24/7 🚀"));
+app.listen(PORT, () => console.log(`💻 Dummy Web Port active on: ${PORT}`));
 
-app.get('/', (req, res) => {
-    res.send("Sentinel Security Server Is Active 24/7 🚀");
-});
-
-app.listen(PORT, () => {
-    console.log(`💻 Dummy Web Port yana kunne a: ${PORT}`);
-});
-
-// 🛡️ INJIN KARIYA DAGA BARCI (SELF-PING TO PREVENT RENDER SLEEP)
+// Keep-Awake routine
+const axios = require('axios'); 
 setInterval(async () => {
     try {
-        // Sauya wannan zuwa cikakken ainihin Link dinka na Render idan ya canza
-        const myServerUrl = 'https://smartai.onrender.com'; 
-        
-        console.log(`📡 [SELF-PING] Muna taba sabar kanmu don hana barci...`);
+        const myServerUrl = 'https://smartai-6u70.onrender.com/'; 
         await axios.get(myServerUrl);
-        console.log(`✅ [SELF-PING SUCCESS] Sabar tana a farke!`);
+        console.log(`📡 [SELF-PING SUCCESS] Sabar tana a farke!`);
     } catch (error) {
-        console.error(`⚠️ [SELF-PING ERROR] Ba a sami sabar ba:`, error.message);
+        console.error(`⚠️ [SELF-PING ERROR]`, error.message);
     }
-}, 5 * 60 * 1000); // Kowane Minti 5
+}, 5 * 60 * 1000);
