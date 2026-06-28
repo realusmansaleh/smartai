@@ -1,10 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 const admin = require('firebase-admin');
+const axios = require('axios'); // Don injin kariya na hana barci
 require('dotenv').config();
 
 console.log("\n=========================================================");
-console.log("🚀 Server din Jami'ai na Girgije Ya Tashi! (ALL SQUADS MODE)");
+console.log("🚀 Server din Jami'ai na Girgije Ya Tashi! (NO-INDEX MODE)");
 console.log("=========================================================\n");
 
 try {
@@ -24,18 +25,23 @@ try {
 const db = admin.firestore();
 const messaging = admin.messaging();
 
-// ⏰ Muna kiyaye lokacin da sabar ta tashi domin tace tsofaffin sakonni
-const serverStartTime = admin.firestore.Timestamp.now();
-console.log(`⏰ Lokacin Kunna Sabar (Server Start Time): ${serverStartTime.toDate().toISOString()}`);
+// 🛡️ Wannan canji zai hana ambaliyar tsofaffin sakonni ba tare da an saka Index ba
+let isFirstLoad = true;
 
 /**
- * 📡 GLOBAL COLLECTION GROUP LISTENER WITH TIMESTAMP FILTER
- * (Sauraron sababbin sakonni kawai daga lokacin da sabar ta tashi zuwa gaba)
+ * 📡 GLOBAL COLLECTION GROUP LISTENER (NO INDEX REQUIRED)
+ * Mun cire duk wani .where() ko .orderBy() don kiyaye Firebase Index Error
  */
 db.collectionGroup('chats')
-  .where('timestamp', '>=', serverStartTime)
   .onSnapshot(snapshot => {
     if (snapshot.empty) return;
+
+    // Idan sabar yanzu ta tashi, ta watsar da tsofaffin sakonnin dake ciki na baya baki daya
+    if (isFirstLoad) {
+        isFirstLoad = false;
+        console.log(`📦 [INITIAL LAUNCH] An watsar da tsofaffin sakonni guda [${snapshot.docChanges().length}] na baya.`);
+        return; 
+    }
 
     console.log(`📡 [LIVE LOG] Sabon motsi ya shigo canje-canje: [${snapshot.docChanges().length}]`);
     
@@ -67,6 +73,7 @@ db.collectionGroup('chats')
                     const uId = userDoc.id; 
                     const fcmToken = userData.fcmToken;
 
+                    // Kar a tura wa wanda ya aiko da sakon
                     if (fcmToken && uId !== senderId) {
                         tokensArray.push(fcmToken);
                     }
@@ -74,7 +81,7 @@ db.collectionGroup('chats')
 
                 if (tokensArray.length === 0) return;
 
-                // Saita saƙon da tsarin Firebase Console da na Data Payload duka biyu
+                // Saita tsarin sakon da Android dinka ke bukata (senderName da message)
                 const payload = {
                     tokens: tokensArray, 
                     android: {
@@ -107,16 +114,23 @@ db.collectionGroup('chats')
     console.error("❌ Firestore Listener Error:", error);
 });
 
-// Dummy Express server don kiyaye Render kada ta mutu
+// Dummy Express server don kiyaye Render
 const express = require('express');
 const app = express();
+const PORT = process.env.PORT || 10000;
+
+app.get('/', (req, res) => {
+    res.send("Sentinel Security Server Is Active 24/7 🚀");
+});
+
+app.listen(PORT, () => {
+    console.log(`💻 Dummy Web Port yana kunne a: ${PORT}`);
+});
 
 // 🛡️ INJIN KARIYA DAGA BARCI (SELF-PING TO PREVENT RENDER SLEEP)
-const axios = require('axios'); // ko amfani da https na gida
-
 setInterval(async () => {
     try {
-        // Sauya wannan zuwa ainihin cikakken Link dinka na Render!
+        // Sauya wannan zuwa cikakken ainihin Link dinka na Render idan ya canza
         const myServerUrl = 'https://smartai.onrender.com'; 
         
         console.log(`📡 [SELF-PING] Muna taba sabar kanmu don hana barci...`);
@@ -125,7 +139,4 @@ setInterval(async () => {
     } catch (error) {
         console.error(`⚠️ [SELF-PING ERROR] Ba a sami sabar ba:`, error.message);
     }
-}, 5 * 60 * 1000); // Kowane Minti 5 (5 minutes)
-const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send("Sentinel Security Server Is Active 24/7 🚀"));
-app.listen(PORT, () => console.log(`💻 Dummy Web Port yana kunne a: ${PORT}`));
+}, 5 * 60 * 1000); // Kowane Minti 5
